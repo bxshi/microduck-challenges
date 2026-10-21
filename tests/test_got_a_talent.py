@@ -103,9 +103,12 @@ def test_got_a_talent_plays_on_after_a_fall_like_the_stage(cfg):
 
 
 def test_got_a_talent_reads_what_a_timeline_carries(cfg):
-    """twist.vx is the sit flag, head_pose the 4 head deltas, body zeros: a
+    """twist is [sit flag, roll trigger, 0], head_pose the 4 head deltas, body zeros: a
     keyframe's 13 numbers, in the 61-D observation's command slot."""
-    assert isinstance(cfg.commands["twist"], microduck_mdp.SitStandCommandCfg)
+    from microduck_challenges.got_a_talent import roll
+
+    assert isinstance(cfg.commands["twist"], roll.RollCommandCfg)
+    assert cfg.commands["twist"].sit_prob == 0.0
     assert len(cfg.commands["head_pose"].ranges) == 4
     actor = cfg.observations["actor"].terms
     assert list(actor)[-3:] == ["command", "head_command", "body_command"]
@@ -129,29 +132,54 @@ def test_checks_head_joint_order_matches_head_pose_trackings_own(cfg):
 TIMELINE = Path(microduck_challenges.__file__).parent / "got_a_talent" / "timeline.json"
 
 
+# Pollen's sit-and-stand performance, the one check.py was written for: the check tests play it.
+SIT_TIMELINE = {"timeline_version": 1, "duration_s": 20.0, "keyframes": [
+    {"t": 0.0, "twist": [0, 0, 0], "head": [0, 0, 0, 0]},
+    {"t": 2.0, "twist": [1, 0, 0], "head": [0, 0, 0.5, 0]},
+    {"t": 4.5, "twist": [1, 0, 0], "head": [0, 0, -0.5, 0]},
+    {"t": 7.0, "twist": [0, 0, 0], "head": [0, 0, 0, 0]},
+    {"t": 9.0, "twist": [0, 0, 0], "head": [0, 0.4, 0, 0]},
+    {"t": 11.0, "twist": [1, 0, 0], "head": [0, 0, 0, 0]},
+    {"t": 15.0, "twist": [0, 0, 0], "head": [0, 0, 0.5, 0]},
+    {"t": 17.0, "twist": [0, 0, 0], "head": [0, 0, -0.5, 0]},
+    {"t": 19.0, "twist": [0, 0, 0], "head": [0, 0, 0, 0]},
+]}
+
+
+@pytest.fixture
+def sit_timeline(tmp_path):
+    import json
+
+    path = tmp_path / "sit.json"
+    path.write_text(json.dumps(SIT_TIMELINE))
+    return path
+
+
 def test_the_reference_timeline_plays_on_the_arena():
     timeline = load_troupe(TIMELINE, load_event("got-a-talent")).ducks[0].timeline
     assert timeline.duration_s == 20.0
-    assert len(timeline.times) == 9
+    assert len(timeline.times) == 13  # stand, then six roll pulses on and off
 
 
 def test_the_reference_timeline_stays_inside_what_training_saw(cfg):
+    """Roll pulses as training fires them: the sit flag 0, the trigger 0 or 1, each pulse as long
+    as a trained one, pulses no closer than training's gap, the head within 40 % of its range."""
+    from microduck_challenges.got_a_talent.env import ROLL_GAP_S, ROLL_PULSE_S
+    from microduck_challenges.got_a_talent.roll_check import _pulses
+
     timeline = load_troupe(TIMELINE, load_event("got-a-talent")).ducks[0].timeline
     final = cfg.curriculum["head_pose_range"].params["range_stages"][-1]["ranges"]
-    dwell = cfg.commands["twist"].resampling_time_range[0]
-    head_every = cfg.commands["head_pose"].resampling_time_range[0]
-    flags = [c[0] for c in timeline.commands]
-    assert set(flags) <= {0.0, 1.0}
     for command in timeline.commands:
-        assert command[1:3] == (0.0, 0.0) and command[7:] == (0.0,) * 6
+        assert command[0] == 0.0 and command[1] in (0.0, 1.0) and command[2] == 0.0
+        assert command[7:] == (0.0,) * 6
         for value, (_, hi) in zip(command[3:7], final):
             assert abs(value) <= 0.4 * hi
-    changes = [t for i, t in enumerate(timeline.times) if i and flags[i] != flags[i - 1]]
-    bounds = changes + [timeline.duration_s]
-    assert all(b - a >= dwell for a, b in zip(bounds, bounds[1:]))
-    head_changes = [t for i, t in enumerate(timeline.times)
-                    if i and timeline.commands[i][3:7] != timeline.commands[i - 1][3:7]]
-    assert all(b - a >= head_every for a, b in zip(head_changes, head_changes[1:]))
+    starts = _pulses(timeline)
+    assert starts
+    for t in starts:
+        end = next(u for u, c in zip(timeline.times, timeline.commands) if u > t and c[1] == 0.0)
+        assert ROLL_PULSE_S[0] <= end - t <= ROLL_PULSE_S[1]
+    assert all(b - a >= ROLL_GAP_S[0] for a, b in zip(starts, starts[1:]))
 
 
 STAND = (0.0,) * 13
@@ -221,11 +249,11 @@ def test_a_fall_fails():
     assert lines[-1] == "fell at 6.30 s"
 
 
-def test_check_plays_the_stage_and_fails_a_walker(capsys):
+def test_check_plays_the_stage_and_fails_a_walker(capsys, sit_timeline):
     """End to end on the Arena: the reference walker does not sit."""
     from microduck_challenges.got_a_talent import check
 
-    assert check.main([str(ASSET_ROOT / "policies" / "BEST_alpha_walking.onnx")]) == 1
+    assert check.main([str(ASSET_ROOT / "policies" / "BEST_alpha_walking.onnx"), "--timeline", str(sit_timeline)]) == 1
     out = capsys.readouterr().out.splitlines()
     assert len(out) == 9 + 2  # a line per keyframe, the fall line, the verdict
     assert out[-1].startswith("FAIL: largest head error ")
@@ -237,7 +265,7 @@ def test_check_reads_a_troupes_star_alone(tmp_path, capsys):
 
     from microduck_challenges.got_a_talent import check
 
-    reference = json.loads(TIMELINE.read_text())
+    reference = SIT_TIMELINE
     troupe = tmp_path / "timeline.json"
     troupe.write_text(json.dumps({"timeline_version": 2, "duration_s": reference["duration_s"], "ducks": [
         {"policy": "self", "keyframes": reference["keyframes"]},
@@ -260,11 +288,12 @@ def test_check_refuses_a_malformed_timeline(tmp_path, capsys):
 
 
 def test_the_manifest_says_what_the_policy_reads():
-    """publish writes this into every got-a-talent manifest: the sit flag and the head pose, never 'unused'."""
+    """publish writes this into every got-a-talent manifest: the sit flag, the roll trigger and the head pose."""
     from mjlab_microduck import challenge as ch
 
     import microduck_challenges  # noqa: F401 — registers every challenge's task
 
     command = ch.for_task("Mjlab-GotATalent-MicroDuck").command
     assert command["twist"].startswith("[sit flag")
+    assert "roll trigger" in command["twist"]
     assert "head_yaw" in command["head"]

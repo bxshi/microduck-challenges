@@ -1,4 +1,11 @@
-"""MicroDuck Got a Talent's training environment: Microduck sits and stands on command.
+"""MicroDuck Got a Talent's training environment: Microduck stands, and rolls backward on command.
+
+The backward roll (roll.py) is layered on the sit & stand task below: twist[1] is a roll
+trigger, the sit flag (twist[0]) is held at 0 for now, the sit/stand rest stack pauses while a
+roll is under way, and a slice of episodes spawns mid-roll. Everything else, robot, solver,
+observation layout and domain randomisation, is the sit & stand task's.
+
+The sit & stand task's own description follows.
 
 A complete copy of microduck_rl's sitstand task (microduck_sitstand_env_cfg.py,
 the config behind alpha_sitstand), made MicroDuck Got a Talent's own: flat ground
@@ -59,7 +66,7 @@ Joint layout (14 actuated joints):
 import math
 from copy import deepcopy
 
-# Symmetry
+# Symmetry. Must stay off: the mirror negates twist[1], the roll trigger (roll.py).
 ENABLE_SYMMETRY = False
 
 # ── Domain randomisation (matched to the velocity env for sim2real parity) ────
@@ -70,7 +77,7 @@ ENABLE_KD_RANDOMIZATION              = False  # match velocity (OFF)
 ENABLE_MASS_INERTIA_RANDOMIZATION    = True   # match velocity: dr.pseudo_inertia (mass+inertia)
 ENABLE_JOINT_FRICTION_RANDOMIZATION  = True   # match velocity: FrictionDRBamActuator.friction_scale
 ENABLE_ARMATURE_RANDOMIZATION        = True   # match velocity: reflected rotor inertia
-ENABLE_VELOCITY_PUSHES               = True
+ENABLE_VELOCITY_PUSHES               = False  # a push mid-roll is incoherent (as the forward roll); the Arena never pushes
 ENABLE_IMU_ORIENTATION_RANDOMIZATION = True   # match velocity: obs-level per-env misalignment
 ENABLE_ENCODER_BIAS                  = True   # match velocity: per-env joint encoder offset (actor obs)
 
@@ -98,6 +105,18 @@ EPISODE_LENGTH_S = 12.0
 # lower bound must comfortably exceed a gentle transition (~1.5 s) plus some
 # rest, so "arrive, then hold still" is always trained.
 POSTURE_DWELL_S  = (3.5, 6.5)
+
+# ── Backward roll (roll.py) ───────────────────────────────────────────────────
+# Seconds between trigger resamples (a pulse fires at each with ROLL_PROB). The
+# lower bound leaves room for a roll and its stand-up (about 1.5 s scripted on
+# the Arena, flip_feasibility.py); a trigger arriving mid-roll is ignored.
+ROLL_GAP_S   = (2.5, 4.0)
+ROLL_PROB    = 0.7
+ROLL_PULSE_S = (0.4, 1.0)
+# Reverse curriculum: share of episodes that spawn mid-roll, pitched backward
+# 60-300 deg (180 = on the back), legs lerped toward the forward roll's tuck.
+ROLL_MIDROLL_PROB  = 0.3
+ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
 SIT_PROB         = 0.5
@@ -180,11 +199,23 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab_microduck import challenge
 from mjlab_microduck.robot.microduck_constants import MICRODUCK_STANDUP_ROBOT_CFG
 from mjlab_microduck.tasks import mdp as microduck_mdp
+from mjlab_microduck.tasks.microduck_roulade_env_cfg import TUCK_OVERRIDES
 from mjlab_microduck.tasks.microduck_velocity_env_cfg import (
     HEAD_BODY_NAMES,
     HEAD_POSE_CMD_RESAMPLE_S,
 )
 from mjlab_microduck.tasks.symmetry import PpoWithSymmetryCfg, SYMMETRY_CFG
+
+from . import roll
+
+# The rest stack: every term that says "stand (or sit) still, upright, at height,
+# slowly". roll.when_resting pauses them while a roll is under way.
+REST_TERMS = (
+    "posture_pose_legs", "head_pose_tracking", "posture_pose_l1", "posture_height",
+    "posture_height_sharp", "posture_height_l1", "rise_bootstrap", "descent_speed",
+    "rise_speed", "gentle_motion", "upright_linear", "upright_while_tall",
+    "posture_stillness", "posture_composite", "body_ang_vel", "angular_momentum",
+)
 
 
 def make_env_cfg(
@@ -218,6 +249,16 @@ def make_env_cfg(
         num_slots=1,
     )
 
+    # Whole-robot ground contact: the roll's support gate (roll.RollCommand).
+    robot_ground_cfg = ContactSensorCfg(
+        name="robot_ground_contact",
+        primary=ContactMatch(mode="subtree", pattern="trunk_base", entity="robot"),
+        secondary=ContactMatch(mode="body", pattern="terrain"),
+        fields=("found",),
+        reduce="none",
+        num_slots=1,
+    )
+
     # NOTE: no head-ground contact penalty here (unlike the sit env). Using the
     # head as a third support point during transitions is explicitly allowed —
     # the plank-as-terminal-rest exploit is anti-selected by posture_composite
@@ -231,7 +272,7 @@ def make_env_cfg(
     # Standup robot variant: full collision meshes — the body must physically
     # rest on the ground while seated, and knees/head may touch mid-transition.
     cfg.scene.entities = {"robot": MICRODUCK_STANDUP_ROBOT_CFG}
-    cfg.scene.sensors  = (feet_ground_cfg, self_collision_cfg)
+    cfg.scene.sensors  = (feet_ground_cfg, self_collision_cfg, robot_ground_cfg)
     cfg.viewer.body_name = "trunk_base"
 
     cfg.episode_length_s = EPISODE_LENGTH_S
@@ -480,6 +521,40 @@ def make_env_cfg(
     if "upright" in cfg.rewards:
         del cfg.rewards["upright"]
 
+    # ── Rewards: the backward roll (roll.py) ──────────────────────────────────
+    # The rest stack pauses during a roll; the smoothness regularisers
+    # (action_rate, torque_rate, self_collisions) stay on throughout.
+    for name in REST_TERMS:
+        term = cfg.rewards[name]
+        cfg.rewards[name] = RewardTermCfg(
+            func=roll.when_resting, weight=term.weight, params={"term": term.func, **term.params},
+        )
+    # Progress: a full roll pays weight x 2*pi (the forward roll's weight).
+    cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=8.0)
+    # Stand-up annuity, open once the roll is round: the standing goal score
+    # (as posture_composite, stand target) and upward motion out of the landing.
+    cfg.rewards["roll_landing"] = RewardTermCfg(
+        func=roll.roll_landing,
+        weight=4.0,
+        params={
+            "sit_overrides": SITTING_TARGET_OVERRIDES,
+            "joint_indices": _LEG_JOINTS,
+            "sit_z":         SIT_Z,
+            "stand_z":       STAND_Z,
+            "height_std":    0.03,
+            "upright_std":   0.40,
+            "pose_std":      0.40,
+        },
+    )
+    cfg.rewards["roll_rise"] = RewardTermCfg(
+        func=roll.roll_rise,
+        weight=0.75,
+        params={"max_height": 0.125, "max_vz": MAX_RISE_SPEED},
+    )
+    # Straight and sagittal: the line across the stage.
+    cfg.rewards["roll_lateral"] = RewardTermCfg(func=roll.roll_lateral, weight=-0.5)
+    cfg.rewards["roll_flatness"] = RewardTermCfg(func=roll.roll_flatness, weight=-0.5)
+
     # ── Observations (identical layout to walking / sit / standup policies) ───
     del cfg.observations["actor"].terms["base_lin_vel"]
 
@@ -573,6 +648,8 @@ def make_env_cfg(
         cfg.observations[group].terms["body_command"] = ObservationTermCfg(
             func=microduck_mdp.zero_command_padding, params={"dim": 6},
         )
+    # The roll state, for the critic only (the actor's 61 numbers are fixed).
+    cfg.observations["critic"].terms["roll_state"] = ObservationTermCfg(func=roll.roll_state_obs)
 
     # ── Command: sit/stand posture flag in the twist slot ────────────────────
     # cmd = [sit_flag, 0, 0]; dwell-time resampling flips the posture mid-
@@ -586,15 +663,20 @@ def make_env_cfg(
     command.rel_heading_envs  = 0.0
     command.heading_command   = False
     command.ranges.heading    = None
-    command.resampling_time_range = POSTURE_DWELL_S
+    command.resampling_time_range = ROLL_GAP_S
     command.debug_vis = False
-    cfg.commands["twist"] = microduck_mdp.SitStandCommandCfg(
+    # The roll: cmd = [0, roll trigger, 0] (roll.RollCommand); the sit flag
+    # stays 0 for now, so the posture stack below always aims at STAND.
+    cfg.commands["twist"] = roll.RollCommandCfg(
         **{
             **vars(command),
-            "sit_prob": SIT_PROB,
+            "class_type": roll.RollCommand,
+            "sit_prob": 0.0,
             "ramp_s":   POSTURE_RAMP_S,
             "sit_z":    SIT_Z,
             "stand_z":  STAND_Z,
+            "roll_prob": ROLL_PROB,
+            "pulse_s":   ROLL_PULSE_S,
         }
     )
 
@@ -631,23 +713,29 @@ def make_env_cfg(
     # this trains all four cases — sit-from-stand, rise-from-sit, hold-stand,
     # hold-sit — and hands the policy both goal states' values directly (the
     # sit env's discovery-bootstrap lesson, extended to both ends).
+    #
+    # With the roll, sitting is not trained: the mix is standing spawns and
+    # mid-roll spawns (reverse curriculum: the forward roll's reset, pitched
+    # BACKWARD), and sync_roll_state then starts each mid-roll spawn's roll at
+    # its spawn angle. Order matters: sync must run after the reset it reads.
     cfg.events["set_ground_state"] = EventTermCfg(
-        func=microduck_mdp.set_random_ground_state,
+        func=microduck_mdp.reset_roulade_state,
         mode="reset",
         params={
-            "face_down_prob":          0.0,
-            "face_up_prob":            0.0,
-            "sitting_prob":            0.5,
-            "standing_prob":           0.5,
-            "sitting_joint_overrides": SITTING_TARGET_OVERRIDES,
-            "sitting_joint_noise_std": 0.10,           # ≈ 6° per joint
-            "sitting_tilt_max":        math.radians(8),
-            "sitting_z_min":           0.06,            # settles to the 0.060 rest
-            "sitting_z_max":           0.075,
-            "standing_z_min":          0.11,
-            "standing_z_max":          0.12,
+            "standing_prob":       1.0 - ROLL_MIDROLL_PROB,
+            "midroll_prob":        ROLL_MIDROLL_PROB,
+            "standing_z_min":      0.11,
+            "standing_z_max":      0.12,
+            "midroll_pitch_min":   roll.BACKWARD * ROLL_MIDROLL_PITCH[1],
+            "midroll_pitch_max":   roll.BACKWARD * ROLL_MIDROLL_PITCH[0],
+            "midroll_z_min":       0.05,
+            "midroll_z_max":       0.10,
+            "tuck_overrides":      TUCK_OVERRIDES,
+            "tuck_factor_range":   (0.0, 1.0),
+            "joint_noise_std":     0.05,
         },
     )
+    cfg.events["sync_roll_state"] = EventTermCfg(func=roll.sync_roll_state, mode="reset")
 
     # MuJoCo physics robustness (sit env's contact NaN fix). The standup XML
     # has full collisions on every body; the seated pose puts trunk + folded

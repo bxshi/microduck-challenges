@@ -1,5 +1,5 @@
 # MicroDuck Got a Talent: a 20 s performance on a stage. The Arena plays your
-# timeline.json (when to sit, when to stand, where to look); visitors vote.
+# timeline.json (when to roll backward, where to look); visitors vote.
 # Nothing is timed. Make the moves yours.
 event = "got-a-talent"
 task  = "Mjlab-GotATalent-MicroDuck"
@@ -7,7 +7,7 @@ kind  = "perpetual"
 
 # What the policy reads in each command group: publish writes it in the manifest.
 [command]
-twist = "[sit flag: 1 sit, 0 stand; unused; unused]"
+twist = "[sit flag, held 0 (stand); roll trigger: a short pulse of 1 starts one backward roll and stand-up; unused]"
 head  = "[neck_pitch, head_pitch, head_yaw, head_roll]: rad from the default pose"
 
 [recipe]                  # the first training, as is

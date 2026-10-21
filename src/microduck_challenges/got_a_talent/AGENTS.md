@@ -84,6 +84,26 @@ A test (`test_the_reference_timeline_stays_inside_what_training_saw`) holds this
 changing at least 3.5 s apart, head targets at least 2 s apart. A timeline outside it may still play
 well: check it on the stage, and if the user wants it anyway, adjust the test with them.
 
+## This fork: the backward roll
+
+This folder now trains a **backward roll on command** instead of sitting (`roll.py`, wired in
+`env.py`):
+
+- `twist[1]` is the **roll trigger**: a pulse of 1 (0.4–1.0 s in training) makes a standing duck
+  roll backward once and stand back up; `twist[0]`, the sit flag, is held at 0 (sitting is not
+  trained). `timeline.json` is six pulses, 0.6 s each, 3 s apart.
+- During a roll the sit/stand rest stack pauses (`roll.when_resting`); training pays backward
+  rotation while touching the floor (`roll_progress`, a full roll = 8 × 2π), then standing once
+  the roll is round (`roll_landing`, `roll_rise`), and taxes sideways drift.
+- 30 % of episodes spawn mid-roll, pitched backward (the forward-roll task's
+  `reset_roulade_state`, synced by `roll.sync_roll_state`). Pushes are off.
+- Symmetry augmentation must stay off: its mirror negates `twist[1]`.
+- Judge checkpoints with **`roll_check.py`** (same arguments as `check.py`): per pulse, did the
+  trunk turn 330° backward and then stand 0.5 s; plus distance travelled and drift. Curves to
+  watch: `Episode_Reward/roll_progress`, `roll_landing`, `Metrics/twist/rolls_completed`.
+- Physics feasibility (scripted, no training) is in `../../../../flip_feasibility.py` beside the
+  checkout: an aerial backflip falls short (~295°); a backward roll that stands up is possible.
+
 ## Files
 
 | File | What it holds | Change it? |
