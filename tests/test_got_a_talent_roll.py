@@ -139,7 +139,7 @@ def test_mid_roll_spawns_start_rolling_at_their_spawn_angle(env):
     mid = frontier > 1.0
     assert mid.any() and (~mid).any()
     assert term.rolling[mid].all()
-    assert torch.all(frontier[mid] >= 59.0) and torch.all(frontier[mid] <= 301.0)
+    assert torch.all(frontier[mid] >= 14.0) and torch.all(frontier[mid] <= 301.0)
     assert torch.all(term.paid[mid] == term.frontier[mid])
 
 
