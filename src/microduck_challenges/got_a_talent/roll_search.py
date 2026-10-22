@@ -103,6 +103,13 @@ def script_action_for(ends, offsets, which, into):
     return rx.script_action(ends, offsets, which, torch.clamp(into, min=0.0))
 
 
+def _variant(lo, hi, a) -> dict:
+    score, success, turn, z = a
+    x = (lo.cpu() + z * (hi - lo).cpu()).tolist()
+    return {"params": [round(v, 4) for v in x[:-1]], "handover": round(x[-1], 3),
+            "success": round(success, 3), "turn_deg": round(turn, 1), "score": round(score, 3)}
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -112,6 +119,7 @@ def main(argv=None) -> None:
     ap.add_argument("--sigma", type=float, default=0.06, help="initial step, in units of each parameter's range")
     ap.add_argument("--keep", type=int, default=8, help="variants to write")
     ap.add_argument("--out", default=str(rx.VARIANTS))
+    ap.add_argument("--save-every", type=int, default=10, help="write <out>.partial every N generations")
     args = ap.parse_args(argv)
 
     seed = rx.load_variants(args.device)
@@ -140,6 +148,12 @@ def main(argv=None) -> None:
         b = order[0]
         print(f"gen {g:3d}: best score {r['score'][b]:.2f} success {r['success'][b]:.2f} turn {r['turn_deg'][b]:.0f} deg, "
               f"mean-candidate success {r['success'][0]:.2f}, sigma {sigma:.3f}, {time.time() - t0:.0f} s", flush=True)
+        if args.save_every and (g + 1) % args.save_every == 0:
+            # Unjudged snapshot (the search's own seeds): something to keep if the session dies.
+            best = sorted(archive, key=lambda a: (a[1], a[0]), reverse=True)[: args.keep]
+            Path(args.out + ".partial").write_text(json.dumps({
+                "source": f"roll_search.py partial, generation {g + 1}", "n_keyframes": nk,
+                "variants": [_variant(lo, hi, a) for a in best]}, indent=1) + "\n")
 
     # Re-judge the best distinct candidates on 4x the seeds, then keep the most reliable.
     archive.sort(key=lambda a: (a[1], a[0]), reverse=True)
@@ -161,12 +175,9 @@ def main(argv=None) -> None:
             chosen.append(a)
         if len(chosen) == args.keep:
             break
-    variants = []
-    for score, success, turn, z in chosen:
-        x = (lo.cpu() + z * (hi - lo).cpu()).tolist()
-        variants.append({"params": [round(v, 4) for v in x[:-1]], "handover": round(x[-1], 3),
-                         "success": round(success, 3), "turn_deg": round(turn, 1), "score": round(score, 3)})
-        print(f"variant: success {success:.2f} turn {turn:.0f} handover {x[-1]:.2f}")
+    variants = [_variant(lo, hi, a) for a in chosen]
+    for v in variants:
+        print(f"variant: success {v['success']:.2f} turn {v['turn_deg']:.0f} handover {v['handover']:.2f}")
     Path(args.out).write_text(json.dumps({
         "source": f"roll_search.py: population {args.population} x {args.seeds} seeds, {args.generations} generations, "
                   "training physics with domain randomization, alpha_stand handover",
