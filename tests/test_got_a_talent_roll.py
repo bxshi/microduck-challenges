@@ -332,3 +332,9 @@ def test_the_expert_clock_reads_scripted_only_for_a_triggered_roll_before_its_ha
     term.triggered[:] = False
     term.ref_time[:] = 0.2
     assert torch.all(roll.expert_state_obs(env)[:, 0] == 0.0)
+
+
+def test_roll_expert_needs_no_arena_and_names_the_joints_as_it_does():
+    from microduck_challenges.got_a_talent import roll_expert as rx
+
+    assert rx.JOINT_NAMES == tuple(JOINT_NAMES)

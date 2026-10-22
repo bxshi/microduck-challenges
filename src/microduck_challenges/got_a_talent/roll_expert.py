@@ -19,7 +19,10 @@ from pathlib import Path
 
 import torch
 
-from arena.constants import DEFAULT_POSE, JOINT_NAMES
+# arena.constants.JOINT_NAMES (the training install has no arena; test_roll_expert checks they match).
+JOINT_NAMES = ("left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", "left_ankle", "neck_pitch",
+               "head_pitch", "head_yaw", "head_roll", "right_hip_yaw", "right_hip_roll", "right_hip_pitch",
+               "right_knee", "right_ankle")
 
 PER_KEYFRAME = 6
 KEYFRAME_LO = (0.04, -1.6, -1.6, -1.6, -1.6, -1.6)
