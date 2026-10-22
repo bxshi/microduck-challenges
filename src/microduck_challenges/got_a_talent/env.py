@@ -115,8 +115,8 @@ ROLL_PROB    = 0.7
 ROLL_PULSE_S = (0.4, 1.0)
 # Reverse curriculum: share of episodes that spawn mid-roll, pitched backward
 # 60-300 deg (180 = on the back), legs lerped toward the forward roll's tuck.
-ROLL_MIDROLL_PROB  = 0.3
-ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
+ROLL_MIDROLL_PROB  = 0.5
+ROLL_MIDROLL_PITCH = (math.radians(180.0), math.radians(330.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
 SIT_PROB         = 0.5
