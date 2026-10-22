@@ -160,6 +160,7 @@ def test_no_trigger_no_roll_and_a_trigger_starts_one_that_counts_backward(env):
 
     names = list(env.reward_manager.active_terms)
     pose = names.index("posture_composite")
+    term.spent[:] = False  # the pulses at reset were cancelled above
     term.pulse_left[:] = 0.6
     paid = torch.zeros(8)
     held = []
@@ -301,3 +302,33 @@ def test_the_roll_script_mirrors_the_legs_and_holds_each_keyframe():
     last = rx.script_action(ends, offsets, torch.tensor([0]), torch.tensor([99.0]))
     assert torch.allclose(first[0], offsets[0, 0]) and torch.allclose(last[0], offsets[0, -1])
     assert torch.all((v["handover"] >= rx.HANDOVER_RANGE[0]) & (v["handover"] <= rx.HANDOVER_RANGE[1]))
+
+
+def test_one_pulse_starts_one_roll(env):
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    term.cfg.roll_prob = 0.0
+    term.time_left[:] = 100.0
+    term.rolling[:] = False
+    term.spent[:] = False
+    term.pulse_left[:] = 1.0  # a long pulse
+    env.step(_backward_lean())
+    started = term.rolling.clone()
+    assert started.any()
+    term.rolling[:] = False  # as if each roll came round at once, pulse still on
+    env.step(_backward_lean())
+    assert not term.rolling[started].any()
+
+
+def test_the_expert_clock_reads_scripted_only_for_a_triggered_roll_before_its_handover(env):
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    term.triggered[:] = True
+    term.variant[:] = 0
+    term.ref_time[:] = 0.2
+    assert torch.all(roll.expert_state_obs(env)[:, 0] == 1.0)
+    term.ref_time[:] = term.handover[0] + 0.1
+    assert torch.all(roll.expert_state_obs(env)[:, 0] == 0.0)
+    term.triggered[:] = False
+    term.ref_time[:] = 0.2
+    assert torch.all(roll.expert_state_obs(env)[:, 0] == 0.0)

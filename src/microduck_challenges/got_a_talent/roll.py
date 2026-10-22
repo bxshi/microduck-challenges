@@ -38,7 +38,7 @@ import torch
 
 from mjlab_microduck.tasks import mdp as microduck_mdp
 
-from microduck_challenges.got_a_talent import roll_reference
+from microduck_challenges.got_a_talent import roll_expert, roll_reference
 
 BACKWARD = -1.0  # sign of a backward roll's rate about the trunk's +y
 
@@ -84,6 +84,14 @@ class RollCommand(microduck_mdp.SitStandCommand):
         self.stand_time = torch.zeros(n, device=dev)
         # Time since this roll started on roll_reference's clock (s); inf when there is none.
         self.ref_time = torch.full((n,), math.inf, device=dev)
+        # The expert's roll (roll_expert): which variant a TRIGGERED roll plays (mid-roll spawns
+        # have none: the expert lands and stands them with alpha_stand).
+        self.handover = roll_expert.load_variants(dev)["handover"]
+        self.triggered = torch.zeros(n, dtype=torch.bool, device=dev)
+        # A pulse starts one roll: without this, a pulse still on when a fast roll came round
+        # started a second one (the timeline's 0.6 s pulse means one roll on the stage).
+        self.spent = torch.zeros(n, dtype=torch.bool, device=dev)
+        self.variant = torch.zeros(n, dtype=torch.long, device=dev)
         self.metrics["rolls_started"] = torch.zeros(n, device=dev)
         self.metrics["rolls_completed"] = torch.zeros(n, device=dev)
 
@@ -100,6 +108,7 @@ class RollCommand(microduck_mdp.SitStandCommand):
         length = torch.rand(n, device=self.device) * (hi - lo) + lo
         fire = torch.rand(n, device=self.device) < self.cfg.roll_prob
         self.pulse_left[env_ids] = torch.where(fire, length, torch.zeros_like(length))
+        self.spent[env_ids] = False
 
     def compute(self, dt: float) -> None:
         super().compute(dt)
@@ -115,11 +124,14 @@ class RollCommand(microduck_mdp.SitStandCommand):
         upright = up > math.cos(math.radians(cfg.stand_tilt_deg))
 
         # A trigger meets a duck ready to roll: a new roll starts from zero.
-        start = trigger & ~self.rolling & upright & (z > cfg.ready_z)
+        start = trigger & ~self.spent & ~self.rolling & upright & (z > cfg.ready_z)
+        self.spent |= start
         if start.any():
             for state in (self.accum, self.frontier, self.paid, self.roll_time, self.stand_time):
                 state[start] = 0.0
             self.ref_time[start] = 0.0
+            self.triggered[start] = True
+            self.variant[start] = torch.randint(0, len(self.handover), (int(start.sum()),), device=self.device)
             self.rolling |= start
             self.metrics["rolls_started"] += start.float()
 
@@ -162,7 +174,9 @@ class RollCommandCfg(microduck_mdp.SitStandCommandCfg):
     # A roll ends standing above stand_z_min (m) for stand_hold_s, or after timeout_s.
     stand_z_min: float = 0.10
     stand_hold_s: float = 0.5
-    timeout_s: float = 4.0
+    timeout_s: float = 2.5
+    # How long a roll keeps the rest stack's pre-roll value (when_resting).
+    credit_s: float = 1.5
     # End the roll as soon as it is round, handing the stand-up to the rest stack. Waiting for the
     # stand kept roll4 "rolling" until the timeout, through the next trigger: the rest stack, which
     # pays the upright stand, was paused nearly all the time and it waited leaning 28 deg back.
@@ -234,7 +248,7 @@ HEAD_JOINTS = ("neck_pitch", "head_pitch", "head_yaw", "head_roll")
 
 
 def head_hold(env, command_name: str = "twist", head_command: str = "head_pose",
-              grace_s: float = 1.0) -> torch.Tensor:
+              grace_s: float = 1.6) -> torch.Tensor:
     """Squared distance (rad^2, summed) of the neck and head from their commanded pose (positive;
     negative weight), everywhere but a roll's first grace_s, where the head throw belongs.
 
@@ -295,7 +309,10 @@ def when_resting(env, term, memo: str, roll_command: str = "twist", **params) ->
     through the roll too. ``term`` is the original reward function, ``memo`` a key for its frozen
     value, and ``params`` its own (its own ``command_name`` among them, hence ``roll_command``).
     """
-    rolling = _roll(env, roll_command).rolling
+    roll = _roll(env, roll_command)
+    # Frozen only through a roll's first credit_s: a roll that stalls (on its back, say) is paid
+    # what it is, not the standing value it left (the review's stall exploit in roll10-11).
+    rolling = roll.rolling & (roll.roll_time < roll.cfg.credit_s)
     memos = env.__dict__.setdefault("_rest_memo", {})
     value = term(env, **params)
     if memo not in memos:
@@ -345,9 +362,19 @@ def sync_roll_state(env, env_ids: torch.Tensor, command_name: str = "twist") -> 
     term.roll_time[env_ids] = 0.0
     term.stand_time[env_ids] = 0.0
     term.ref_time[env_ids] = torch.where(mid, reference_time_at(spawn), torch.full_like(spawn, math.inf))
+    term.triggered[env_ids] = False
     # A mid-roll spawn has no rest value from before its roll: it earns the rest stack by finishing.
     for frozen in env.__dict__.get("_rest_memo", {}).values():
         frozen[env_ids] = 0.0
+
+
+def expert_state_obs(env, command_name: str = "twist") -> torch.Tensor:
+    """The expert's clock, for roll_distill only (never the actor): [scripted, time into the
+    script (s), variant]. Scripted: a triggered roll before its variant's handover."""
+    term = _roll(env, command_name)
+    t = torch.nan_to_num(term.ref_time, posinf=99.0)
+    scripted = term.triggered & (t < term.handover[term.variant])
+    return torch.stack([scripted.float(), t.clamp(max=99.0), term.variant.float()], dim=-1)
 
 
 def roll_state_obs(env, command_name: str = "twist") -> torch.Tensor:

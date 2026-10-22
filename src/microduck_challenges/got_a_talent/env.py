@@ -115,11 +115,11 @@ ROLL_PROB    = 0.7
 ROLL_PULSE_S = (0.4, 1.0)
 # Reverse curriculum: share of episodes that spawn mid-roll, pitched backward
 # 60-300 deg (180 = on the back), legs lerped toward the forward roll's tuck.
-ROLL_MIDROLL_PROB  = 0.3
-ROLL_IMITATE_WEIGHT = 4.0
+ROLL_MIDROLL_PROB  = 0.15  # roll12: the expert teaches the roll; spawns are get-up practice
+ROLL_IMITATE_WEIGHT = 0.0  # roll12: superseded by the roll expert (roll_distill)
 HEAD_HOLD_WEIGHT    = -2.0
 # Iterations of standing alone before triggers and mid-roll spawns start (roll.roll_curriculum).
-ROLL_START_ITER     = 600
+ROLL_START_ITER     = 0    # roll12: the expert teaches the stand and the roll together
 ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
@@ -186,6 +186,7 @@ from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers import (
     CurriculumTermCfg,
     EventTermCfg,
+    ObservationGroupCfg,
     ObservationTermCfg,
     RewardTermCfg,
     TerminationTermCfg,
@@ -211,6 +212,7 @@ from mjlab_microduck.tasks.microduck_velocity_env_cfg import (
 from mjlab_microduck.tasks.symmetry import PpoWithSymmetryCfg, SYMMETRY_CFG
 
 from . import roll
+from .roll_distill import PpoWithRollExpertCfg
 
 # The rest stack: every term that says "stand (or sit) still, upright, at height,
 # slowly". roll.when_resting freezes them while a roll is under way.
@@ -540,7 +542,8 @@ def make_env_cfg(
     cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=16.0)
     # Follow the scripted roll (roll_reference) for its first 1.6 s: the shape of a roll that lands
     # on its feet, which the progress and landing terms alone did not find (roll3-7).
-    cfg.rewards["roll_imitate"] = RewardTermCfg(func=roll.roll_imitate, weight=ROLL_IMITATE_WEIGHT)
+    if ROLL_IMITATE_WEIGHT:
+        cfg.rewards["roll_imitate"] = RewardTermCfg(func=roll.roll_imitate, weight=ROLL_IMITATE_WEIGHT)
     # The head at its command everywhere but the throw at a roll's start (roll.head_hold); with
     # head_pose_tracking no longer paused during a roll (out of REST_TERMS).
     cfg.rewards["head_hold"] = RewardTermCfg(func=roll.head_hold, weight=HEAD_HOLD_WEIGHT)
@@ -663,6 +666,9 @@ def make_env_cfg(
         )
     # The roll state, for the critic only (the actor's 61 numbers are fixed).
     cfg.observations["critic"].terms["roll_state"] = ObservationTermCfg(func=roll.roll_state_obs)
+    # The roll expert's clock, stored with every frame for roll_distill's cloning pass; no model reads it.
+    cfg.observations["expert"] = ObservationGroupCfg(
+        terms={"state": ObservationTermCfg(func=roll.expert_state_obs)}, enable_corruption=False)
 
     # ── Command: sit/stand posture flag in the twist slot ────────────────────
     # cmd = [sit_flag, 0, 0]; dwell-time resampling flips the posture mid-
@@ -1023,7 +1029,7 @@ RL_CFG = RslRlOnPolicyRunnerCfg(
         activation="elu",
         obs_normalization=True,
     ),
-    algorithm=PpoWithSymmetryCfg(
+    algorithm=PpoWithRollExpertCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
