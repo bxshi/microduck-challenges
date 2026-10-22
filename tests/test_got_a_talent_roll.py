@@ -168,3 +168,19 @@ def test_no_trigger_no_roll_and_a_trigger_starts_one_that_counts_backward(env):
     # The rest stack pays nothing while rolling.
     pose = list(env.reward_manager.active_terms).index("posture_composite")
     assert torch.all(env.reward_manager._step_reward[term.rolling, pose] == 0.0)
+
+
+def test_roll_progress_pays_one_turn_and_nothing_past_it():
+    import types
+
+    term = types.SimpleNamespace(frontier=torch.tensor([0.0, 0.0]), paid=torch.zeros(2),
+                                 rolling=torch.tensor([True, True]))
+    env = types.SimpleNamespace(step_dt=CTRL_DT)
+    total = torch.zeros(2)
+    for turned in torch.linspace(0.0, 3.0 * math.pi, 400):  # one and a half turns
+        term.frontier = torch.stack([turned, torch.clamp(turned, max=math.pi)])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(roll, "_roll", lambda env, name: term)
+            total += roll.roll_progress(env) * CTRL_DT
+    assert total[0].item() == pytest.approx(2 * math.pi, abs=1e-3)
+    assert total[1].item() == pytest.approx(math.pi, abs=1e-3)

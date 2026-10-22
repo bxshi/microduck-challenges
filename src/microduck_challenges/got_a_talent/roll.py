@@ -173,12 +173,14 @@ def roll_progress(env, command_name: str = "twist", max_rate: float = 8.0) -> to
     Potential-based: a full roll pays 2*pi (times the weight) however it gets there, and
     rocking back and forth pays nothing twice. Rotation faster than max_rate is forfeited, not
     deferred, so a violent whip earns no more than a fast roll (the forward roll's run-1 lesson;
-    the scripted roll on the Arena turned at about 7 rad/s).
+    the scripted roll on the Arena turned at about 7 rad/s). Nothing past one turn pays: roll3,
+    uncapped, learned to tumble 560-720 deg per trigger and never stand.
     """
     term = _roll(env, command_name)
-    owed = torch.clamp(term.frontier - term.paid, min=0.0)
+    frontier = torch.clamp(term.frontier, max=2 * math.pi)
+    owed = torch.clamp(frontier - term.paid, min=0.0)
     pay = torch.clamp(owed, max=max_rate * env.step_dt)
-    term.paid = torch.maximum(term.paid, term.frontier)
+    term.paid = torch.maximum(term.paid, frontier)
     return pay / env.step_dt * term.rolling.float()
 
 
