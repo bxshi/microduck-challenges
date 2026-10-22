@@ -229,6 +229,30 @@ def roll_imitate(env, command_name: str = "twist", joint_std: float = 0.5,
     return score * active.float()
 
 
+HEAD_JOINTS = ("neck_pitch", "head_pitch", "head_yaw", "head_roll")
+
+
+def head_hold(env, command_name: str = "twist", head_command: str = "head_pose",
+              grace_s: float = 1.0) -> torch.Tensor:
+    """Squared distance (rad^2, summed) of the neck and head from their commanded pose (positive;
+    negative weight), everywhere but a roll's first grace_s, where the head throw belongs.
+
+    Quadratic on purpose: roll1-8 learned to fold the neck to its stop (~1.9 rad off), where the
+    Gaussian head terms (head_pose_tracking, posture_composite's head factor) are flat and pull
+    nothing; the trunk then leaned ~30 deg back to balance the head, failing the stage's 20 deg.
+    """
+    term = _roll(env, command_name)
+    asset = env.scene["robot"]
+    if not hasattr(env, "_roll_head_ids"):
+        ids, _ = asset.find_joints(HEAD_JOINTS, preserve_order=True)
+        env._roll_head_ids = torch.tensor(ids, device=env.device, dtype=torch.long)
+    ids = env._roll_head_ids
+    target = asset.data.default_joint_pos[:, ids] + env.command_manager.get_command(head_command)
+    err = ((asset.data.joint_pos[:, ids] - target) ** 2).sum(dim=-1)
+    throwing = term.rolling & (term.ref_time < grace_s)
+    return err * (~throwing).float()
+
+
 _REFERENCE: dict = {}
 
 

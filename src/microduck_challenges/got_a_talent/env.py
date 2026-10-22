@@ -117,6 +117,7 @@ ROLL_PULSE_S = (0.4, 1.0)
 # 60-300 deg (180 = on the back), legs lerped toward the forward roll's tuck.
 ROLL_MIDROLL_PROB  = 0.3
 ROLL_IMITATE_WEIGHT = 4.0
+HEAD_HOLD_WEIGHT    = -2.0
 ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
@@ -212,7 +213,7 @@ from . import roll
 # The rest stack: every term that says "stand (or sit) still, upright, at height,
 # slowly". roll.when_resting pauses them while a roll is under way.
 REST_TERMS = (
-    "posture_pose_legs", "head_pose_tracking", "posture_pose_l1", "posture_height",
+    "posture_pose_legs", "posture_pose_l1", "posture_height",
     "posture_height_sharp", "posture_height_l1", "rise_bootstrap", "descent_speed",
     "rise_speed", "gentle_motion", "upright_linear", "upright_while_tall",
     "posture_stillness", "posture_composite", "body_ang_vel", "angular_momentum",
@@ -538,6 +539,9 @@ def make_env_cfg(
     # Follow the scripted roll (roll_reference) for its first 1.6 s: the shape of a roll that lands
     # on its feet, which the progress and landing terms alone did not find (roll3-7).
     cfg.rewards["roll_imitate"] = RewardTermCfg(func=roll.roll_imitate, weight=ROLL_IMITATE_WEIGHT)
+    # The head at its command everywhere but the throw at a roll's start (roll.head_hold); with
+    # head_pose_tracking no longer paused during a roll (out of REST_TERMS).
+    cfg.rewards["head_hold"] = RewardTermCfg(func=roll.head_hold, weight=HEAD_HOLD_WEIGHT)
     # Stand-up annuity, open once the roll is round: the standing goal score
     # (as posture_composite, stand target) and upward motion out of the landing.
     cfg.rewards["roll_landing"] = RewardTermCfg(

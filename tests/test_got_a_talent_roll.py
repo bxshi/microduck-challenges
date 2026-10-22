@@ -238,3 +238,25 @@ def test_mid_roll_spawns_join_the_reference_at_their_angle(env):
     assert torch.all(torch.isinf(term.ref_time[~mid]))
     expected = roll.reference_time_at(term.frontier[mid])
     assert torch.allclose(term.ref_time[mid], expected, atol=0.05)
+
+
+def test_head_hold_prices_a_folded_neck_except_during_the_throw(env, cfg):
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    robot = env.scene["robot"]
+    assert cfg.rewards["head_hold"].weight < 0
+    assert cfg.rewards["head_pose_tracking"].func is not roll.when_resting
+    ids, _ = robot.find_joints(roll.HEAD_JOINTS, preserve_order=True)
+    home = robot.data.default_joint_pos.clone()
+    folded = home.clone()
+    folded[:, ids[0]] -= 1.9  # the neck at its stop, as roll1-8 held it
+    head = torch.zeros(8, 4)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(env.command_manager, "get_command", lambda name: head)
+        for pose, expect in ((home, 0.0), (folded, 1.9**2)):
+            mp.setattr(type(robot.data), "joint_pos", property(lambda self, p=pose: p))
+            term.rolling[:] = False
+            assert torch.allclose(roll.head_hold(env), torch.full((8,), expect), atol=1e-4)
+        term.rolling[:] = True
+        term.ref_time[:] = 0.3  # the head throw at a roll's start is free
+        assert torch.all(roll.head_hold(env) == 0.0)
