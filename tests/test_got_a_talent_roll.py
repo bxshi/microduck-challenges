@@ -114,6 +114,7 @@ def env():
 
     cfg = importlib.import_module(ENV).make_env_cfg()
     cfg.scene.num_envs = 8
+    cfg.curriculum["roll_start"].params["start_step"] = 0  # rolls on from the first step
     environment = ManagerBasedRlEnv(cfg=cfg, device="cpu")
     yield environment
     environment.close()
@@ -238,7 +239,9 @@ def test_mid_roll_spawns_join_the_reference_at_their_angle(env):
     env.reset()
     term = env.command_manager.get_term("twist")
     mid = term.frontier > 1e-3
-    assert torch.all(torch.isinf(term.ref_time[~mid]))
+    # A standing spawn has no reference clock, unless a trigger at reset just started its roll.
+    standing = term.ref_time[~mid]
+    assert torch.all(torch.isinf(standing) | (standing <= 2 * env.step_dt))
     expected = roll.reference_time_at(term.frontier[mid])
     assert torch.allclose(term.ref_time[mid], expected, atol=0.05)
 
@@ -268,3 +271,19 @@ def test_head_hold_prices_a_folded_neck_except_during_the_throw(env, cfg):
 def test_a_leaning_duck_cannot_refuse_a_roll(env):
     """roll1-9 learned to wait leaning past the start gate's tilt so no roll ever started."""
     assert env.command_manager.get_term("twist").cfg.stand_tilt_deg >= 45.0
+
+
+def test_rolls_wait_until_the_stand_is_learned(env):
+    params = env.event_manager.get_term_cfg("set_ground_state").params
+    term = env.command_manager.get_term("twist")
+    start = 600 * 24
+    saved = env.common_step_counter
+    try:
+        env.common_step_counter = 0
+        roll.roll_curriculum(env, None, start_step=start)
+        assert term.cfg.roll_prob == 0.0 and params["midroll_prob"] == 0.0 and params["standing_prob"] == 1.0
+        env.common_step_counter = start
+        roll.roll_curriculum(env, None, start_step=start)
+        assert term.cfg.roll_prob > 0.0 and params["midroll_prob"] > 0.0
+    finally:
+        env.common_step_counter = saved

@@ -305,6 +305,24 @@ def when_resting(env, term, memo: str, roll_command: str = "twist", **params) ->
     return torch.where(rolling, frozen, value)
 
 
+def roll_curriculum(env, env_ids, command_name: str = "twist", reset_event: str = "set_ground_state",
+                    start_step: int = 0, roll_prob: float = 0.7, midroll_prob: float = 0.3) -> torch.Tensor:
+    """Stand first: no triggers and no mid-roll spawns until start_step (env steps), then both.
+
+    roll1-10 never found the upright stand: in the training env Pollen's alpha_stand (2 deg) earns
+    ~5x the reward of the 30-60 deg lean they settled on, so the lean is a habit formed while rolls
+    were already on, not what the reward wants. Learning the stand alone first is how the base
+    sit & stand task (alpha_sitstand) gets there. Returns 1 once rolls are on (logged).
+    """
+    del env_ids
+    on = env.common_step_counter >= start_step
+    _roll(env, command_name).cfg.roll_prob = roll_prob if on else 0.0
+    params = env.event_manager.get_term_cfg(reset_event).params
+    params["midroll_prob"] = midroll_prob if on else 0.0
+    params["standing_prob"] = 1.0 - params["midroll_prob"]
+    return torch.tensor([float(on)])
+
+
 # ── Reset and observation ────────────────────────────────────────────────────
 
 

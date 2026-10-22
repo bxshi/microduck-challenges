@@ -118,6 +118,8 @@ ROLL_PULSE_S = (0.4, 1.0)
 ROLL_MIDROLL_PROB  = 0.3
 ROLL_IMITATE_WEIGHT = 4.0
 HEAD_HOLD_WEIGHT    = -2.0
+# Iterations of standing alone before triggers and mid-roll spawns start (roll.roll_curriculum).
+ROLL_START_ITER     = 600
 ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
@@ -863,6 +865,12 @@ def make_env_cfg(
     # ── Curriculum ────────────────────────────────────────────────────────────
     del cfg.curriculum["terrain_levels"]
     del cfg.curriculum["command_vel"]
+
+    # Stand first, then roll (roll.roll_curriculum).
+    cfg.curriculum["roll_start"] = CurriculumTermCfg(
+        func=roll.roll_curriculum,
+        params={"start_step": ROLL_START_ITER * 24, "roll_prob": ROLL_PROB, "midroll_prob": ROLL_MIDROLL_PROB},
+    )
 
     # Head pose command range curriculum — same per-joint widening as the
     # velocity/standup envs (5% → 100% of each joint's reachable delta).
