@@ -38,6 +38,8 @@ import torch
 
 from mjlab_microduck.tasks import mdp as microduck_mdp
 
+from microduck_challenges.got_a_talent import roll_reference
+
 BACKWARD = -1.0  # sign of a backward roll's rate about the trunk's +y
 
 # Sagittal-flatness credit on the rotation (as the forward roll): full while the trunk's lateral
@@ -80,6 +82,8 @@ class RollCommand(microduck_mdp.SitStandCommand):
         self.paid = torch.zeros(n, device=dev)
         self.roll_time = torch.zeros(n, device=dev)
         self.stand_time = torch.zeros(n, device=dev)
+        # Time since this roll started on roll_reference's clock (s); inf when there is none.
+        self.ref_time = torch.full((n,), math.inf, device=dev)
         self.metrics["rolls_started"] = torch.zeros(n, device=dev)
         self.metrics["rolls_completed"] = torch.zeros(n, device=dev)
 
@@ -115,6 +119,7 @@ class RollCommand(microduck_mdp.SitStandCommand):
         if start.any():
             for state in (self.accum, self.frontier, self.paid, self.roll_time, self.stand_time):
                 state[start] = 0.0
+            self.ref_time[start] = 0.0
             self.rolling |= start
             self.metrics["rolls_started"] += start.float()
 
@@ -136,6 +141,7 @@ class RollCommand(microduck_mdp.SitStandCommand):
         done = self.rolling & (self.frontier >= cfg.gate_hi) & stood
         self.metrics["rolls_completed"] += done.float()
         self.rolling &= ~(done | (self.roll_time > cfg.timeout_s))
+        self.ref_time += dt
 
 
 @dataclass(kw_only=True)
@@ -203,6 +209,44 @@ def roll_rise(env, command_name: str = "twist", **rise) -> torch.Tensor:
         env, command_name=command_name, **rise)
 
 
+def roll_imitate(env, command_name: str = "twist", joint_std: float = 0.5,
+                 rotation_std: float = 1.0) -> torch.Tensor:
+    """How closely the duck follows the scripted roll (roll_reference) since its roll started:
+    the joints (rms error against joint_std, rad) times the rotation so far (against rotation_std,
+    rad). Loose on purpose: the training physics turns the same joint targets less far than the
+    Arena's stage did. 0 outside the reference's 1.6 s, so it shapes the roll and the feet-under
+    landing and leaves the stand to the rest stack.
+    """
+    term = _roll(env, command_name)
+    joints, rotation = _reference(env.device)
+    active = term.ref_time < (len(rotation) - 0.5) * roll_reference.DT
+    frame = torch.clamp(torch.nan_to_num(term.ref_time / roll_reference.DT, posinf=0.0).round().long(),
+                        0, len(rotation) - 1)
+    q = env.scene["robot"].data.joint_pos
+    joint_err = ((q - joints[frame]) ** 2).mean(dim=-1)
+    rot_err = (term.accum - rotation[frame]) ** 2
+    score = torch.exp(-joint_err / joint_std**2) * torch.exp(-rot_err / rotation_std**2)
+    return score * active.float()
+
+
+_REFERENCE: dict = {}
+
+
+def _reference(device) -> tuple[torch.Tensor, torch.Tensor]:
+    """(joints [frames, 14], rotation [frames]) of roll_reference, on device."""
+    if device not in _REFERENCE:
+        _REFERENCE[device] = (torch.tensor(roll_reference.JOINTS, dtype=torch.float32, device=device),
+                              torch.tensor(roll_reference.ROTATION, dtype=torch.float32, device=device))
+    return _REFERENCE[device]
+
+
+def reference_time_at(rotation: torch.Tensor) -> torch.Tensor:
+    """roll_reference's time (s) at which the script first turned ``rotation`` (rad) backward."""
+    _, ref = _reference(rotation.device)
+    frame = torch.searchsorted(torch.cummax(ref, dim=0).values, rotation.contiguous())
+    return torch.clamp(frame, max=len(ref) - 1).float() * roll_reference.DT
+
+
 def roll_lateral(env, command_name: str = "twist", **params) -> torch.Tensor:
     """Sideways trunk velocity squared during a roll (positive; negative weight): keeps the line
     straight, so a string of rolls crosses the stage instead of wandering."""
@@ -248,6 +292,7 @@ def sync_roll_state(env, env_ids: torch.Tensor, command_name: str = "twist") -> 
         state[env_ids] = spawn
     term.roll_time[env_ids] = 0.0
     term.stand_time[env_ids] = 0.0
+    term.ref_time[env_ids] = torch.where(mid, reference_time_at(spawn), torch.full_like(spawn, math.inf))
 
 
 def roll_state_obs(env, command_name: str = "twist") -> torch.Tensor:

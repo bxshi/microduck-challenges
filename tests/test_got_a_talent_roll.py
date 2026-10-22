@@ -198,3 +198,43 @@ def test_a_round_roll_ends_at_once_and_hands_the_stand_to_the_rest_stack(env):
     term.stand_time[:] = 0.0
     env.step(torch.zeros(8, len(JOINT_NAMES)))
     assert not term.rolling.any()
+
+
+def test_the_reference_starts_at_the_home_pose_and_goes_round_by_one_second(env):
+    from microduck_challenges.got_a_talent import roll_reference as ref
+
+    home = env.scene["robot"].data.default_joint_pos[0].cpu().numpy()
+    assert np.abs(np.array(ref.JOINTS[0]) - home).max() < 0.1
+    assert ref.ROTATION[round(1.0 / ref.DT)] >= math.radians(330.0)
+    assert len(ref.JOINTS) == len(ref.ROTATION) and all(len(row) == len(JOINT_NAMES) for row in ref.JOINTS)
+
+
+def test_roll_imitate_pays_following_the_script_and_nothing_without_a_roll(env):
+    from microduck_challenges.got_a_talent import roll_reference as ref
+
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    robot = env.scene["robot"]
+    term.ref_time[:] = math.inf
+    assert torch.all(roll.roll_imitate(env) == 0.0)
+    frame = 20
+    term.ref_time[:] = frame * ref.DT
+    rotation = torch.tensor(ref.ROTATION)
+    # A reference whose every frame is env 0's current pose (joint_pos is read back from the sim).
+    pose = robot.data.joint_pos[0].clone().expand(len(rotation), -1)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(roll, "_reference", lambda device: (pose, rotation))
+        term.accum[:] = rotation[frame]
+        on = roll.roll_imitate(env)
+        term.accum[:] = rotation[frame] + math.pi
+        off = roll.roll_imitate(env)
+    assert on[0] > 0.99 and torch.all(off < 0.01)
+
+
+def test_mid_roll_spawns_join_the_reference_at_their_angle(env):
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    mid = term.frontier > 1e-3
+    assert torch.all(torch.isinf(term.ref_time[~mid]))
+    expected = roll.reference_time_at(term.frontier[mid])
+    assert torch.allclose(term.ref_time[mid], expected, atol=0.05)

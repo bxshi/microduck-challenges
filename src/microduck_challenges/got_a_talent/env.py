@@ -116,6 +116,7 @@ ROLL_PULSE_S = (0.4, 1.0)
 # Reverse curriculum: share of episodes that spawn mid-roll, pitched backward
 # 60-300 deg (180 = on the back), legs lerped toward the forward roll's tuck.
 ROLL_MIDROLL_PROB  = 0.3
+ROLL_IMITATE_WEIGHT = 4.0
 ROLL_MIDROLL_PITCH = (math.radians(60.0), math.radians(300.0))
 # Probability a resample commands SIT (vs STAND). 0.5 → all four combinations
 # of (reset state × command) get equal coverage, including both holds.
@@ -531,6 +532,9 @@ def make_env_cfg(
         )
     # Progress: a full roll pays weight x 2*pi (twice the forward roll's weight).
     cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=16.0)
+    # Follow the scripted roll (roll_reference) for its first 1.6 s: the shape of a roll that lands
+    # on its feet, which the progress and landing terms alone did not find (roll3-7).
+    cfg.rewards["roll_imitate"] = RewardTermCfg(func=roll.roll_imitate, weight=ROLL_IMITATE_WEIGHT)
     # Stand-up annuity, open once the roll is round: the standing goal score
     # (as posture_composite, stand target) and upward motion out of the landing.
     cfg.rewards["roll_landing"] = RewardTermCfg(
