@@ -488,7 +488,10 @@ def make_env_cfg(
             "height_std":    0.03,
             "upright_std":   0.40,   # ≈ 23° effective — plank (~70°+) scores ~0
             "pose_std":      0.40,
-            "head_std":      0.40,   # head fully dropped (~1.2 rad) → factor ~0.01
+            # 1.0 for the roll (was 0.40): roll4-7 waited between rolls with the neck still thrown
+            # back (~1.9 rad off), which at 0.40 zeroed the whole composite (~0.0003), so standing
+            # straighter paid nothing; at 1.0 the head costs ~2/3 and the gradient is back.
+            "head_std":      1.0,
         },
     )
 
