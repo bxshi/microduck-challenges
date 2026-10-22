@@ -129,10 +129,11 @@ class RollCommand(microduck_mdp.SitStandCommand):
         self.frontier = torch.maximum(self.frontier, self.accum)
         self.roll_time += dt * rolling
 
-        # Done: round, then standing upright for stand_hold_s. Or out of time.
+        # Done: round (then, unless end_when_round, standing upright for stand_hold_s). Or out of time.
         standing = upright & (z > cfg.stand_z_min)
         self.stand_time = torch.where(standing & self.rolling, self.stand_time + dt, torch.zeros_like(self.stand_time))
-        done = self.rolling & (self.frontier >= cfg.gate_hi) & (self.stand_time >= cfg.stand_hold_s)
+        stood = (self.stand_time >= cfg.stand_hold_s) | cfg.end_when_round
+        done = self.rolling & (self.frontier >= cfg.gate_hi) & stood
         self.metrics["rolls_completed"] += done.float()
         self.rolling &= ~(done | (self.roll_time > cfg.timeout_s))
 
@@ -155,6 +156,10 @@ class RollCommandCfg(microduck_mdp.SitStandCommandCfg):
     stand_z_min: float = 0.10
     stand_hold_s: float = 0.5
     timeout_s: float = 4.0
+    # End the roll as soon as it is round, handing the stand-up to the rest stack. Waiting for the
+    # stand kept roll4 "rolling" until the timeout, through the next trigger: the rest stack, which
+    # pays the upright stand, was paused nearly all the time and it waited leaning 28 deg back.
+    end_when_round: bool = True
     support_sensor: str = "robot_ground_contact"
 
     def build(self, env) -> "RollCommand":

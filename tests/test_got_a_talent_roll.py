@@ -184,3 +184,17 @@ def test_roll_progress_pays_one_turn_and_nothing_past_it():
             total += roll.roll_progress(env) * CTRL_DT
     assert total[0].item() == pytest.approx(2 * math.pi, abs=1e-3)
     assert total[1].item() == pytest.approx(math.pi, abs=1e-3)
+
+
+def test_a_round_roll_ends_at_once_and_hands_the_stand_to_the_rest_stack(env):
+    env.reset()
+    term = env.command_manager.get_term("twist")
+    term.cfg.roll_prob = 0.0
+    term.pulse_left[:] = 0.0
+    term.time_left[:] = 100.0
+    term.rolling[:] = True
+    term.frontier[:] = term.cfg.gate_hi
+    term.accum[:] = term.cfg.gate_hi
+    term.stand_time[:] = 0.0
+    env.step(torch.zeros(8, len(JOINT_NAMES)))
+    assert not term.rolling.any()
