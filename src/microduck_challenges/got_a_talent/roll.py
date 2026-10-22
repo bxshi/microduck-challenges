@@ -144,8 +144,9 @@ class RollCommandCfg(microduck_mdp.SitStandCommandCfg):
     # Probability a resample fires a trigger pulse, and the pulse's length (s).
     roll_prob: float = 0.7
     pulse_s: tuple[float, float] = (0.4, 1.0)
-    # Ready to roll: upright within stand_tilt_deg and trunk above ready_z (m).
-    stand_tilt_deg: float = 25.0
+    # Ready to roll: upright within stand_tilt_deg and trunk above ready_z (m). Stricter than the
+    # stage's 20 deg: at 25, roll4 learned to wait between rolls leaning 28 deg back, primed.
+    stand_tilt_deg: float = 15.0
     ready_z: float = 0.09
     # Completion gate on the rotation frontier (rad): opens from gate_lo to gate_hi.
     gate_lo: float = math.radians(260.0)
