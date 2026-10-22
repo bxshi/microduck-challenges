@@ -151,9 +151,10 @@ class RollCommandCfg(microduck_mdp.SitStandCommandCfg):
     # Probability a resample fires a trigger pulse, and the pulse's length (s).
     roll_prob: float = 0.7
     pulse_s: tuple[float, float] = (0.4, 1.0)
-    # Ready to roll: upright within stand_tilt_deg and trunk above ready_z (m). Stricter than the
-    # stage's 20 deg: at 25, roll4 learned to wait between rolls leaning 28 deg back, primed.
-    stand_tilt_deg: float = 15.0
+    # Ready to roll: upright within stand_tilt_deg and trunk above ready_z (m). Loose on purpose: a
+    # tight gate let a leaning duck refuse rolls (roll1-9). The stand after a roll is the rest
+    # stack's job; stand_hold_s still reads this tilt when end_when_round is off.
+    stand_tilt_deg: float = 45.0
     ready_z: float = 0.09
     # Completion gate on the rotation frontier (rad): opens from gate_lo to gate_hi.
     gate_lo: float = math.radians(260.0)
@@ -283,16 +284,25 @@ def roll_flatness(env, command_name: str = "twist", **params) -> torch.Tensor:
     return _roll(env, command_name).rolling.float() * microduck_mdp.roulade_flatness_penalty(env, **params)
 
 
-def when_resting(env, term, roll_command: str = "twist", **params) -> torch.Tensor:
-    """Any rest-stack term, paused while a roll is under way.
+def when_resting(env, term, memo: str, roll_command: str = "twist", **params) -> torch.Tensor:
+    """Any rest-stack term, its value frozen while a roll is under way.
 
-    The sit/stand stack pays upright, still, at height, slow: a roll breaks every one of them,
-    so left on it would make the roll net-negative and never learned (the reward-trap the
-    challenge notes warn of). ``term`` is the original reward function and ``params`` its own
-    (its own ``command_name`` among them, hence ``roll_command`` here).
+    The sit/stand stack pays upright, still, at height, slow: a roll breaks every one of them, so
+    left on it would make the roll net-negative and never learned. Paused to 0 (roll1-9), it still
+    made every roll cost the stack's whole income, and the policy learned to refuse rolls by
+    waiting outside the start gate's tilt (32 deg in roll1, 60 in roll9fresh). Frozen at its value
+    the step before the roll began, a roll costs nothing and standing well before a trigger pays
+    through the roll too. ``term`` is the original reward function, ``memo`` a key for its frozen
+    value, and ``params`` its own (its own ``command_name`` among them, hence ``roll_command``).
     """
-    resting = ~_roll(env, roll_command).rolling
-    return term(env, **params) * resting.float()
+    rolling = _roll(env, roll_command).rolling
+    memos = env.__dict__.setdefault("_rest_memo", {})
+    value = term(env, **params)
+    if memo not in memos:
+        memos[memo] = torch.zeros_like(value)
+    frozen = memos[memo]
+    frozen[~rolling] = value[~rolling]
+    return torch.where(rolling, frozen, value)
 
 
 # ── Reset and observation ────────────────────────────────────────────────────
@@ -317,6 +327,9 @@ def sync_roll_state(env, env_ids: torch.Tensor, command_name: str = "twist") -> 
     term.roll_time[env_ids] = 0.0
     term.stand_time[env_ids] = 0.0
     term.ref_time[env_ids] = torch.where(mid, reference_time_at(spawn), torch.full_like(spawn, math.inf))
+    # A mid-roll spawn has no rest value from before its roll: it earns the rest stack by finishing.
+    for frozen in env.__dict__.get("_rest_memo", {}).values():
+        frozen[env_ids] = 0.0
 
 
 def roll_state_obs(env, command_name: str = "twist") -> torch.Tensor:

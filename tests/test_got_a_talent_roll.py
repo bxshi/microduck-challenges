@@ -157,17 +157,20 @@ def test_no_trigger_no_roll_and_a_trigger_starts_one_that_counts_backward(env):
     assert not term.rolling[standing].any()
     assert env.command_manager.get_command("twist")[:, 1].sum() == 0
 
+    names = list(env.reward_manager.active_terms)
+    pose = names.index("posture_composite")
     term.pulse_left[:] = 0.6
     paid = torch.zeros(8)
+    held = []
     for _ in range(25):
         env.step(_backward_lean())
-        paid += env.reward_manager._step_reward[:, list(env.reward_manager.active_terms).index("roll_progress")]
+        paid += env.reward_manager._step_reward[:, names.index("roll_progress")]
+        held.append(env.reward_manager._step_reward[:, pose].clone())
     assert term.rolling[standing].all()
     assert torch.all(torch.rad2deg(term.frontier[standing]) > 60.0)
     assert torch.all(paid[standing] > 0.0)
-    # The rest stack pays nothing while rolling.
-    pose = list(env.reward_manager.active_terms).index("posture_composite")
-    assert torch.all(env.reward_manager._step_reward[term.rolling, pose] == 0.0)
+    # The rest stack holds its pre-roll value while rolling: a roll neither earns nor costs it.
+    assert torch.equal(held[-1][standing], held[-5][standing])
 
 
 def test_roll_progress_pays_one_turn_and_nothing_past_it():
@@ -260,3 +263,8 @@ def test_head_hold_prices_a_folded_neck_except_during_the_throw(env, cfg):
         term.rolling[:] = True
         term.ref_time[:] = 0.3  # the head throw at a roll's start is free
         assert torch.all(roll.head_hold(env) == 0.0)
+
+
+def test_a_leaning_duck_cannot_refuse_a_roll(env):
+    """roll1-9 learned to wait leaning past the start gate's tilt so no roll ever started."""
+    assert env.command_manager.get_term("twist").cfg.stand_tilt_deg >= 45.0

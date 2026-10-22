@@ -1,7 +1,7 @@
 """MicroDuck Got a Talent's training environment: Microduck stands, and rolls backward on command.
 
 The backward roll (roll.py) is layered on the sit & stand task below: twist[1] is a roll
-trigger, the sit flag (twist[0]) is held at 0 for now, the sit/stand rest stack pauses while a
+trigger, the sit flag (twist[0]) is held at 0 for now, the sit/stand rest stack freezes while a
 roll is under way, and a slice of episodes spawns mid-roll. Everything else, robot, solver,
 observation layout and domain randomisation, is the sit & stand task's.
 
@@ -211,7 +211,7 @@ from mjlab_microduck.tasks.symmetry import PpoWithSymmetryCfg, SYMMETRY_CFG
 from . import roll
 
 # The rest stack: every term that says "stand (or sit) still, upright, at height,
-# slowly". roll.when_resting pauses them while a roll is under way.
+# slowly". roll.when_resting freezes them while a roll is under way.
 REST_TERMS = (
     "posture_pose_legs", "posture_pose_l1", "posture_height",
     "posture_height_sharp", "posture_height_l1", "rise_bootstrap", "descent_speed",
@@ -527,12 +527,12 @@ def make_env_cfg(
         del cfg.rewards["upright"]
 
     # ── Rewards: the backward roll (roll.py) ──────────────────────────────────
-    # The rest stack pauses during a roll; the smoothness regularisers
+    # The rest stack freezes during a roll; the smoothness regularisers
     # (action_rate, torque_rate, self_collisions) stay on throughout.
     for name in REST_TERMS:
         term = cfg.rewards[name]
         cfg.rewards[name] = RewardTermCfg(
-            func=roll.when_resting, weight=term.weight, params={"term": term.func, **term.params},
+            func=roll.when_resting, weight=term.weight, params={"term": term.func, "memo": name, **term.params},
         )
     # Progress: a full roll pays weight x 2*pi (twice the forward roll's weight).
     cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=16.0)
