@@ -287,3 +287,17 @@ def test_rolls_wait_until_the_stand_is_learned(env):
         assert term.cfg.roll_prob > 0.0 and params["midroll_prob"] > 0.0
     finally:
         env.common_step_counter = saved
+
+
+def test_the_roll_script_mirrors_the_legs_and_holds_each_keyframe():
+    from microduck_challenges.got_a_talent import roll_expert as rx
+
+    v = rx.load_variants("cpu")
+    ends, offsets = rx.keyframes(v["params"], v["n_keyframes"])
+    hip_l, hip_r = JOINT_NAMES.index("left_hip_pitch"), JOINT_NAMES.index("right_hip_pitch")
+    assert torch.allclose(offsets[..., hip_l], -offsets[..., hip_r])
+    assert torch.all(ends[:, 1:] > ends[:, :-1])
+    first = rx.script_action(ends, offsets, torch.tensor([0]), torch.tensor([0.0]))
+    last = rx.script_action(ends, offsets, torch.tensor([0]), torch.tensor([99.0]))
+    assert torch.allclose(first[0], offsets[0, 0]) and torch.allclose(last[0], offsets[0, -1])
+    assert torch.all((v["handover"] >= rx.HANDOVER_RANGE[0]) & (v["handover"] <= rx.HANDOVER_RANGE[1]))
