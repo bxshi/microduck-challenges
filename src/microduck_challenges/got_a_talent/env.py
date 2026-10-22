@@ -529,8 +529,8 @@ def make_env_cfg(
         cfg.rewards[name] = RewardTermCfg(
             func=roll.when_resting, weight=term.weight, params={"term": term.func, **term.params},
         )
-    # Progress: a full roll pays weight x 2*pi (the forward roll's weight).
-    cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=8.0)
+    # Progress: a full roll pays weight x 2*pi (twice the forward roll's weight).
+    cfg.rewards["roll_progress"] = RewardTermCfg(func=roll.roll_progress, weight=16.0)
     # Stand-up annuity, open once the roll is round: the standing goal score
     # (as posture_composite, stand target) and upward motion out of the landing.
     cfg.rewards["roll_landing"] = RewardTermCfg(
