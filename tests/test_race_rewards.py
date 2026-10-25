@@ -147,3 +147,11 @@ def test_the_race_variant_keeps_the_arenas_observation_layout(folder):
     assert "push_robot" not in cfg.events
     assert cfg.terminations["fell_over"].func is _rewards(folder).arena_fall
     assert cfg.terminations["success"].func is _rewards(folder).race_finished
+
+
+@pytest.mark.parametrize("folder", FOLDERS)
+def test_a_fall_is_charged_in_full_after_dt_scaling(folder):
+    race = _rewards(folder)
+    env = _env(1)
+    env.termination_manager = SimpleNamespace(get_term=lambda name: torch.tensor([name == "fell_over"]))
+    assert float(race.fall_penalty(env)) * env.step_dt == pytest.approx(1.0)  # x the weight, -20

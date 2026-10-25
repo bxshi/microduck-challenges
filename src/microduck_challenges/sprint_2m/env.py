@@ -229,6 +229,8 @@ def make_env_cfg(
     cfg.rewards["progress"] = RewardTermCfg(func=race_rewards.race_progress, weight=10.0)
     cfg.rewards["finish_bonus"] = RewardTermCfg(func=race_rewards.finish_bonus, weight=20.0)
     cfg.rewards["time_penalty"] = RewardTermCfg(func=race_rewards.time_penalty, weight=-0.5)
+    # A fall counts as the time limit in the Arena: price it like the finish is paid.
+    cfg.rewards["fall"] = RewardTermCfg(func=race_rewards.fall_penalty, weight=-20.0)
     # The walls are at +-0.4 m; the policy is never told where it is in the lane.
     cfg.rewards["lane"] = RewardTermCfg(func=race_rewards.lane_excess, weight=-40.0)
     cfg.rewards["heading_hold"] = RewardTermCfg(
@@ -659,7 +661,7 @@ RL_CFG = RslRlOnPolicyRunnerCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.02,  # race: 0.01 -> 0.02, a little more exploration for a from-scratch time objective
+        entropy_coef=0.01,  # the first attempt (0.02) only grew the action noise while every episode dived
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,

@@ -51,6 +51,17 @@ def finish_bonus(env) -> torch.Tensor:
     return env.termination_manager.get_term("success").float() / env.step_dt
 
 
+def fall_penalty(env) -> torch.Tensor:
+    """1/dt on the step the Arena's fall rule ends the episode (use a negative weight = the cost).
+
+    In the Arena a fall counts as the time limit (40-50 s). Without a cost here, the first thing
+    a from-scratch policy finds is the dive: throw the trunk forward in the settle, lie tilted for
+    the 15 steps it takes to be declared fallen, and keep the 0.9 m it dived (first attempt: every
+    episode ended at exactly step 40).
+    """
+    return env.termination_manager.get_term("fell_over").float() / env.step_dt
+
+
 def time_penalty(env, settle_steps: int = SETTLE_STEPS) -> torch.Tensor:
     """1 on every timed step (use a negative weight): the clock runs from the end of the settle."""
     return (env.episode_length_buf > settle_steps).float()
