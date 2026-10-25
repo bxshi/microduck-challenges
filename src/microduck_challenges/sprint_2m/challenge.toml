@@ -11,18 +11,18 @@ seed           = 1
 
 [params.forward_reward]
 label = "Follow the speed order"
-value = 2.0
-min   = 0.5
+value = 0.0                # race variant: the reward ignores the command
+min   = 0.0
 max   = 5.0
 
 [params.upright_reward]
 label = "Stay upright"
-value = 2.0
-min   = 0.5
+value = 0.1                # race variant: the Arena's fall rule judges tilt; this stays small
+min   = 0.0
 max   = 5.0
 
 [params.step_reward]
 label = "Lift your feet"
-value = 3.0
+value = 0.0                # race variant: no gait shaping
 min   = 0.0
 max   = 6.0
