@@ -226,6 +226,22 @@ def make_env_cfg(
     cfg.rewards["air_time"].params["threshold_max"] = 0.300
     cfg.rewards["action_rate_l2"].weight = -0.01
 
+    # Scaffold: a dense reason to stay upright while the policy has nothing else to go on, faded
+    # out so the finish dive stays free (the knob's value, 2.0, is the stage-0 weight).
+    cfg.curriculum["upright_scaffold"] = CurriculumTermCfg(
+        func=microduck_mdp.reward_weight,
+        params={
+            "reward_name": "upright",
+            "weight_stages": [
+                {"step": 0, "weight": knobs["upright_reward"]},
+                {"step": 500 * NUM_STEPS_PER_ENV, "weight": 1.0},
+                {"step": 750 * NUM_STEPS_PER_ENV, "weight": 0.5},
+                {"step": 1000 * NUM_STEPS_PER_ENV, "weight": 0.2},
+                {"step": 1250 * NUM_STEPS_PER_ENV, "weight": 0.1},
+            ],
+        },
+    )
+
     cfg.rewards["progress"] = RewardTermCfg(func=race_rewards.race_progress, weight=10.0)
     cfg.rewards["finish_bonus"] = RewardTermCfg(func=race_rewards.finish_bonus, weight=20.0)
     cfg.rewards["time_penalty"] = RewardTermCfg(func=race_rewards.time_penalty, weight=-0.5)

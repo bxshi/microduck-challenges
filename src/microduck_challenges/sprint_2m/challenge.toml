@@ -17,7 +17,7 @@ max   = 5.0
 
 [params.upright_reward]
 label = "Stay upright"
-value = 0.1                # race variant: the Arena's fall rule judges tilt; this stays small
+value = 2.0                # race variant: stage-0 weight of an upright scaffold that fades to 0.1 by iteration 1250
 min   = 0.0
 max   = 5.0
 
