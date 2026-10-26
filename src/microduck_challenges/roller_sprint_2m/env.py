@@ -218,6 +218,8 @@ def make_env_cfg(
                 ],
             },
         )
+        # race-skate2 ended up sledding (trunk or head on the floor 36% of the time, 8% airborne).
+        cfg.rewards["trunk_low"] = RewardTermCfg(func=race_rewards.trunk_low, weight=-100.0, params={"min_z": 0.10})
         # Push-and-glide: coast on one blade with quiet legs (the challenge's term and weight).
         cfg.rewards["glide"] = RewardTermCfg(
             func=microduck_mdp.glide_reward,

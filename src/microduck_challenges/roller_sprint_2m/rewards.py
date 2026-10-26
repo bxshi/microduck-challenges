@@ -156,3 +156,9 @@ def leg_inphase_penalty(env, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
     left, right = env._race_leg_ids
     q = asset.data.joint_pos
     return (q[:, left] + q[:, right]).abs().mean(dim=-1)
+
+
+def trunk_low(env, min_z: float = 0.10) -> torch.Tensor:
+    """How far (m) the trunk sits below min_z above the floor: a sled, not a skater (use a negative weight)."""
+    z = env.scene["robot"].data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    return (min_z - z).clamp(min=0.0)
