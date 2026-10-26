@@ -18,6 +18,6 @@ max   = 20.0
 
 [params.upright_reward]
 label = "Stay upright"
-value = 2.0
-min   = 0.5
+value = 0.1                # race variant: the Arena's fall rule judges tilt; this stays small
+min   = 0.0
 max   = 5.0
