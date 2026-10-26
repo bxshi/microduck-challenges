@@ -22,7 +22,7 @@ from copy import deepcopy
 NUM_STEPS_PER_ENV = 24
 
 # race-bound: reward legs that move in phase. race-sprint: the race reward alone.
-BOUND_SHAPING = False
+BOUND_SHAPING = True
 
 # The Arena's start (arena/events/sprint-2m.toml [start.perturbation]; arena.course.SPAWN_HEIGHT_M).
 ARENA_YAW_RAD = math.radians(2.0)
