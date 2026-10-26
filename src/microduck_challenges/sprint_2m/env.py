@@ -228,7 +228,7 @@ def make_env_cfg(
 
     cfg.rewards["progress"] = RewardTermCfg(func=race_rewards.race_progress, weight=20.0)
     cfg.rewards["finish_bonus"] = RewardTermCfg(func=race_rewards.finish_bonus, weight=20.0)
-    cfg.rewards["time_penalty"] = RewardTermCfg(func=race_rewards.time_penalty, weight=-2.0)
+    cfg.rewards["time_penalty"] = RewardTermCfg(func=race_rewards.time_penalty, weight=-6.0)
     # A fall counts as the time limit in the Arena: price it like the finish is paid.
     cfg.rewards["fall"] = RewardTermCfg(func=race_rewards.fall_penalty, weight=-20.0)
     # The walls are at +-0.4 m; the policy is never told where it is in the lane.
