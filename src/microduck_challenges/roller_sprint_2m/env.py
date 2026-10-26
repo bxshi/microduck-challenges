@@ -39,7 +39,7 @@ import math
 from copy import deepcopy
 
 # race-skate: penalise flight, keep wheel spin and glide. race-roller: the race reward alone.
-SKATE_SHAPING = True
+SKATE_SHAPING = False
 
 # Symmetry — OFF: SYMMETRY_CFG's obs permutation is hardcoded for the old 51D
 # layout and breaks on the 61D obs (same situation as all other v1.5+ envs).

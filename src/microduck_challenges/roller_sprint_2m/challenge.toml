@@ -12,8 +12,8 @@ seed           = 1
 
 [params.speed_reward]
 label = "Wheel speed reward"
-value = 10.0
-min   = 2.0
+value = 0.0                # race-roller: no wheel term, the race reward alone
+min   = 0.0
 max   = 20.0
 
 [params.upright_reward]
