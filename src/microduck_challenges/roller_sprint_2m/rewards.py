@@ -162,3 +162,9 @@ def trunk_low(env, min_z: float = 0.10) -> torch.Tensor:
     """How far (m) the trunk sits below min_z above the floor: a sled, not a skater (use a negative weight)."""
     z = env.scene["robot"].data.root_link_pos_w[:, 2] - env.scene.env_origins[:, 2]
     return (min_z - z).clamp(min=0.0)
+
+
+def body_on_floor(env, sensor_name: str = "body_ground") -> torch.Tensor:
+    """Number of non-wheel bodies (trunk, head, hips, shins) touching the floor: sledding."""
+    found = env.scene[sensor_name].data.found
+    return (found > 0).float().sum(dim=1)

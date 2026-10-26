@@ -137,6 +137,16 @@ def make_env_cfg(
         track_air_time=True,
     )
 
+    # Everything but the wheels: a skater touches the floor with its wheels only.
+    body_ground_cfg = ContactSensorCfg(
+        name="body_ground",
+        primary=ContactMatch(mode="body", pattern=r"^(trunk_base|jaw_soft|hip_l|hip_l_2|leg|leg_2)$", entity="robot"),
+        secondary=ContactMatch(mode="body", pattern="terrain"),
+        fields=("found",),
+        reduce="none",
+        num_slots=1,
+    )
+
     self_collision_cfg = ContactSensorCfg(
         name="self_collision",
         primary=ContactMatch(mode="subtree", pattern="trunk_base", entity="robot"),
@@ -150,7 +160,7 @@ def make_env_cfg(
 
     # Robot setup
     cfg.scene.entities = {"robot": MICRODUCK_WALK_ROLLERS_ROBOT_CFG}
-    cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg)
+    cfg.scene.sensors = (feet_ground_cfg, self_collision_cfg, body_ground_cfg)
     cfg.viewer.body_name = "trunk_base"
 
     # Action configuration
@@ -220,6 +230,7 @@ def make_env_cfg(
         )
         # race-skate2 ended up sledding (trunk or head on the floor 36% of the time, 8% airborne).
         cfg.rewards["trunk_low"] = RewardTermCfg(func=race_rewards.trunk_low, weight=-100.0, params={"min_z": 0.10})
+        cfg.rewards["body_on_floor"] = RewardTermCfg(func=race_rewards.body_on_floor, weight=-10.0)
         # Push-and-glide: coast on one blade with quiet legs (the challenge's term and weight).
         cfg.rewards["glide"] = RewardTermCfg(
             func=microduck_mdp.glide_reward,
