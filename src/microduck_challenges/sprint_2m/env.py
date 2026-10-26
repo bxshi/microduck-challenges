@@ -247,16 +247,16 @@ def make_env_cfg(
         # Bounding, not running: both legs move as one (hip_pitch, knee and ankle angles sum to
         # zero). A restriction on a skill still being found, so it ramps in.
         cfg.rewards["legs_in_phase"] = RewardTermCfg(
-            func=race_rewards.leg_inphase_penalty, weight=-3.0
+            func=race_rewards.leg_inphase_penalty, weight=-10
         )
         cfg.curriculum["legs_in_phase_weight"] = CurriculumTermCfg(
             func=microduck_mdp.reward_weight,
             params={
                 "reward_name": "legs_in_phase",
                 "weight_stages": [
-                    {"step": 0, "weight": -3.0},
-                    {"step": 250 * NUM_STEPS_PER_ENV, "weight": -6.0},
-                    {"step": 500 * NUM_STEPS_PER_ENV, "weight": -10.0},
+                    {"step": 0, "weight": -10},
+                    {"step": 250 * NUM_STEPS_PER_ENV, "weight": -25},
+                    {"step": 500 * NUM_STEPS_PER_ENV, "weight": -50},
                 ],
             },
         )
