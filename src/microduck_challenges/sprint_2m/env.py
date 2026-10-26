@@ -226,7 +226,7 @@ def make_env_cfg(
     cfg.rewards["air_time"].params["threshold_max"] = 0.300
     cfg.rewards["action_rate_l2"].weight = -0.01
 
-    cfg.rewards["progress"] = RewardTermCfg(func=race_rewards.race_progress, weight=10.0)
+    cfg.rewards["progress"] = RewardTermCfg(func=race_rewards.race_progress, weight=20.0)
     cfg.rewards["finish_bonus"] = RewardTermCfg(func=race_rewards.finish_bonus, weight=20.0)
     cfg.rewards["time_penalty"] = RewardTermCfg(func=race_rewards.time_penalty, weight=-2.0)
     # A fall counts as the time limit in the Arena: price it like the finish is paid.
